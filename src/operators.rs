@@ -74,9 +74,9 @@ pub fn rms_norm(y: &mut Tensor<f32>, x: &Tensor<f32>, w: &Tensor<f32>, epsilon: 
     todo!("实现 rms_norm，计算前做一些必要的检查会帮助你后续调试")
 }
 
-// y = sigmoid(x) * x * y
+// y = silu(x) * y
 // hint: this is an element-wise operation
-pub fn silu(y: &mut Tensor<f32>, x: &Tensor<f32>) {
+pub fn swiglu(y: &mut Tensor<f32>, x: &Tensor<f32>) {
     // let len = y.size();
     // assert!(len == x.size());
 
@@ -176,7 +176,7 @@ pub fn random_sample(x: &Tensor<f32>, top_p: f32, top_k: u32, temperature: f32) 
 fn test_silu() {
     let mut y = Tensor::<f32>::new(vec![2., 3., 4.], &vec![1, 3]);
     let x = Tensor::<f32>::new(vec![1., 2., 3.], &vec![1, 3]);
-    silu(&mut y, &x);
+    swiglu(&mut y, &x);
     assert!(y.close_to(
         &Tensor::<f32>::new(vec![1.4621172, 5.2847824, 11.43089], &vec![1, 3]),
         1e-3

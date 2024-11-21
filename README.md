@@ -19,7 +19,7 @@
 
 ### 1. 算子：SiLU函数（10分）
 
-请在`src/operators.rs`中实现SiLU算子，其公式为：
+请在`src/operators.rs`中实现SwiGLU算子，其公式为：
 
 $$
 y=silu(x) × y
@@ -85,8 +85,8 @@ $$
 hidden = rms_norm(residual)
 gate = hidden @ gate_weight.T
 up = hidden @ up_weight.T
-itermediate = gate * sigmoid(gate) * up ## silu
-output = itermediate @ down_weight.T
+act = gate * sigmoid(gate) * up ## SwiGLU
+output = act @ down_weight.T
 residual = output + residual
 ```
 
@@ -149,9 +149,9 @@ V = cat(V_cache, V)
 ### 以下是你需要实现的部分
 score = Q @ K.T / sqrt(dim)
 attn = softmax(score)
-x = attn @ V
-x = x @ O_weight.T
-residual = x + residual
+attn_V = attn @ V
+out = attn_V @ O_weight.T
+residual = out + residual
 ```
 
 Self-Attention的调试是很困难的。这里推荐大家使用pytorch来辅助调试。各位可以用transformers库（使用llama模型代码）来加载模型并运行，逐层检查中间张量结果。
