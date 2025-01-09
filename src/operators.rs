@@ -1,3 +1,5 @@
+use core::f32;
+
 use crate::tensor::Tensor;
 
 // get (row) vectors from a 2D table given a list of indices
@@ -80,10 +82,29 @@ pub fn swiglu(y: &mut Tensor<f32>, x: &Tensor<f32>) {
     // let len = y.size();
     // assert!(len == x.size());
 
+    assert!(y.size()==x.size());
+
     // let _y = unsafe { y.data_mut() };
     // let _x = x.data();
 
-    todo!("实现 silu，这里给了一些前期准备工作的提示，你可以参考")
+    let  y = unsafe {
+        y.data_mut()
+    };
+    let x = x.data();
+    y
+    .iter_mut()
+    .zip(x.iter())
+    .for_each(|(i,j)| (*i) *=  (silu(*j)) ) ;
+
+
+
+}
+
+fn silu(x: f32 ) -> f32{
+    fn sigmoid(x:f32) -> f32 {
+        1f32 / (1f32+(-1f32*x).exp())
+    }
+    x* sigmoid(x)
 }
 
 // C = beta * C + alpha * A @ B^T
