@@ -73,7 +73,30 @@ pub fn masked_softmax(y: &mut Tensor<f32>) {
 }
 
 pub fn rms_norm(y: &mut Tensor<f32>, x: &Tensor<f32>, w: &Tensor<f32>, epsilon: f32) {
-    todo!("实现 rms_norm，计算前做一些必要的检查会帮助你后续调试")
+    assert!(y.shape().last() == x.shape().last() && x.shape().last() == w.shape().last());
+    assert!(y.shape() == x.shape());
+    let n = w.shape()[0];
+    let times: usize = x.shape().iter().rev().skip(1).product();
+
+    for i in 0..times {
+        let start_index = i * n;
+        let end_index = start_index + n - 1;
+        let xi = x.data();
+        let yi = unsafe { y.data_mut() };
+        let fenmu = ((1f32 / n as f32)
+            * (xi[start_index..=end_index]
+                .iter()
+                .map(|xij| (*xij).powi(2))
+                .sum::<f32>())
+            + epsilon)
+            .sqrt();
+
+        yi[start_index..=end_index]
+            .iter_mut()
+            .zip(xi[start_index..=end_index].iter())
+            .zip(w.data().iter())
+            .for_each(|((i, j), k)| (*i) = (*j) * (*k) / fenmu);
+    }
 }
 
 // y = silu(x) * y
@@ -82,29 +105,22 @@ pub fn swiglu(y: &mut Tensor<f32>, x: &Tensor<f32>) {
     // let len = y.size();
     // assert!(len == x.size());
 
-    assert!(y.size()==x.size());
+    assert!(y.size() == x.size());
 
     // let _y = unsafe { y.data_mut() };
     // let _x = x.data();
 
-    let  y = unsafe {
-        y.data_mut()
-    };
+    let y = unsafe { y.data_mut() };
     let x = x.data();
-    y
-    .iter_mut()
-    .zip(x.iter())
-    .for_each(|(i,j)| (*i) *=  (silu(*j)) ) ;
-
-
-
-}
-
-fn silu(x: f32 ) -> f32{
-    fn sigmoid(x:f32) -> f32 {
-        1f32 / (1f32+(-1f32*x).exp())
+    y.iter_mut()
+        .zip(x.iter())
+        .for_each(|(i, j)| (*i) *= (silu(*j)));
+    fn silu(x: f32) -> f32 {
+        fn sigmoid(x: f32) -> f32 {
+            1f32 / (1f32 + (-1f32 * x).exp())
+        }
+        x * sigmoid(x)
     }
-    x* sigmoid(x)
 }
 
 // C = beta * C + alpha * A @ B^T
