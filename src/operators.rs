@@ -71,7 +71,7 @@ pub fn masked_softmax(y: &mut Tensor<f32>) {
         }
     }
 }
-
+// 几个切片可以进行优化, w可以提前被提取
 pub fn rms_norm(y: &mut Tensor<f32>, x: &Tensor<f32>, w: &Tensor<f32>, epsilon: f32) {
     assert!(y.shape().last() == x.shape().last() && x.shape().last() == w.shape().last());
     assert!(y.shape() == x.shape());
