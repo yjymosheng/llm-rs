@@ -68,11 +68,7 @@ impl LLamaParams<f32> {
                 .map(|i| get_tensor(&format!("model.layers.{i}.mlp.gate_proj.weight")))
                 .collect(),
             rms_out_w: get_tensor("model.norm.weight"),
-            lm_head: if config.tie_word_embeddings {
-                get_tensor("lm_head.weight")
-            } else {
-                get_tensor("lm_head.weight")
-            },
+            lm_head: get_tensor("lm_head.weight"),
         }
     }
 }
