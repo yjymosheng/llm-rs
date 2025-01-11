@@ -116,17 +116,42 @@ pub fn swiglu(y: &mut Tensor<f32>, x: &Tensor<f32>) {
         .zip(x.iter())
         .for_each(|(i, j)| (*i) *= (silu(*j)));
     fn silu(x: f32) -> f32 {
-        fn sigmoid(x: f32) -> f32 {
-            1f32 / (1f32 + (-1f32 * x).exp())
-        }
         x * sigmoid(x)
     }
+}
+pub fn sigmoid(x: f32) -> f32 {
+    1f32 / (1f32 + (-1f32 * x).exp())
 }
 
 // C = beta * C + alpha * A @ B^T
 // hint: You don't need to do an explicit transpose of B
+// 仅考虑 二维矩阵, 不会别的
 pub fn matmul_transb(c: &mut Tensor<f32>, beta: f32, a: &Tensor<f32>, b: &Tensor<f32>, alpha: f32) {
-    todo!("实现 matmul_transb，计算前做一些必要的检查会帮助你后续调试");
+    // println!("c[0][0]  {}", c.get(0, 0));
+    // println!("c[0][1]  {}", c.get(0, 1));
+    // println!("c[1][0]  {}", c.get(1, 0));
+    // println!("c[1][1]  {}", c.get(1, 1));
+    // c.print();
+
+    let row_a = a.shape()[0];
+    // println!("A shape {:?}\nrow_A {}", a.shape(), row_a);
+    // 这玩意儿就是有几列,也是b的转置有几行
+    let col_a = a.shape()[1];
+    // 这个东西是用来推算结果c的第几列
+    let col_c = b.shape()[0];
+
+    for i in 0..row_a {
+        for j in 0..col_c {
+            let c = c.get_mut(i, j);
+            let mut tmp = 0f32;
+            for k in 0..col_a {
+                tmp += a.get(i, k) * b.get(j, k);
+            }
+
+            *c = alpha * tmp + beta * (*c);
+        }
+    }
+    // c.print();
 }
 
 // Dot product of two tensors (treated as vectors)
@@ -246,3 +271,15 @@ fn test_matmul_transb() {
         1e-3
     ));
 }
+// 自行添加项 , 我怀疑我的矩阵乘法仅仅是巧合
+// #[test]
+// fn test_matmul_transb_2() {
+//     let mut c = Tensor::<f32>::new(vec![1., 2., 3., 4.,5.,6.], &vec![2, 3]);
+//     let a = Tensor::<f32>::new(vec![1., 2., 3., 4., 5., 6.,7.,8.], &vec![2, 4]);
+//     let b = Tensor::<f32>::new(vec![1., 2., 3., 4., 5., 6.,7.,8.,9.,10.,11.,12.], &vec![3, 4]);
+//     matmul_transb(&mut c, 1., &a, &b, 1.);
+//     assert!(c.close_to(
+//         &Tensor::<f32>::new(vec![31.,72.,113.,74.,179.,284.], &vec![2, 3]),
+//         1e-3
+//     ));
+// }

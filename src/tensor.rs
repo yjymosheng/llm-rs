@@ -39,6 +39,23 @@ impl<T: Copy + Clone + Default> Tensor<T> {
     pub fn size(&self) -> usize {
         self.length
     }
+    /// 采用计算机编码, 0开始
+    // 假设仅仅考虑2D 张量,属实想不通别的
+    pub fn get(&self, row: usize, col: usize) -> T {
+        // 这里采用计算机编码, 0开始
+        let index = row * self.shape[1] + col;
+        self.data()[index]
+    }
+      /// 采用计算机编码, 0开始
+    // 假设仅仅考虑2D 张量,属实想不通别的
+    pub fn get_mut(&mut self, row: usize, col: usize) -> &mut T {
+        // 这里采用计算机编码, 0开始
+        let index = row * self.shape[1] + col;
+        unsafe {
+            &mut self.data_mut()[index]
+        }
+    }
+
 
     // Reinterpret the tensor as a new shape while preserving total size.
     pub fn reshape(&mut self, new_shape: &Vec<usize>) -> &mut Self {
@@ -61,8 +78,6 @@ impl<T: Copy + Clone + Default> Tensor<T> {
             length: new_length,
         }
     }
-
-
 }
 
 // Some helper functions for testing and debugging
@@ -74,12 +89,15 @@ impl Tensor<f32> {
         }
         let a = self.data();
         let b = other.data();
-        
+
         return a.iter().zip(b).all(|(x, y)| float_eq(x, y, rel));
     }
     #[allow(unused)]
-    pub fn print(&self){
-        println!("shpae: {:?}, offset: {}, length: {}", self.shape, self.offset, self.length);
+    pub fn print(&self) {
+        println!(
+            "shpae: {:?}, offset: {}, length: {}",
+            self.shape, self.offset, self.length
+        );
         let dim = self.shape()[self.shape().len() - 1];
         let batch = self.length / dim;
         for i in 0..batch {
