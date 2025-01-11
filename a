@@ -1,0 +1,40 @@
+
+running 1 test
+test model::test_load_safetensors ... FAILED
+
+failures:
+
+---- model::test_load_safetensors stdout ----
+[
+    "model.layers.0.input_layernorm.weight",
+    "model.layers.0.self_attn.o_proj.weight",
+    "model.layers.1.mlp.gate_proj.weight",
+    "model.layers.0.self_attn.v_proj.weight",
+    "model.layers.0.self_attn.q_proj.weight",
+    "model.layers.1.self_attn.k_proj.weight",
+    "model.layers.0.mlp.down_proj.weight",
+    "model.layers.1.mlp.up_proj.weight",
+    "model.layers.0.self_attn.k_proj.weight",
+    "model.layers.1.self_attn.o_proj.weight",
+    "model.layers.0.post_attention_layernorm.weight",
+    "model.layers.1.input_layernorm.weight",
+    "model.layers.1.post_attention_layernorm.weight",
+    "model.layers.1.self_attn.q_proj.weight",
+    "model.norm.weight",
+    "lm_head.weight",
+    "model.layers.0.mlp.up_proj.weight",
+    "model.layers.1.mlp.down_proj.weight",
+    "model.layers.0.mlp.gate_proj.weight",
+    "model.layers.1.self_attn.v_proj.weight",
+]
+
+thread 'model::test_load_safetensors' panicked at src/params.rs:44:9:
+not yet implemented
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    model::test_load_safetensors
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.00s
+
