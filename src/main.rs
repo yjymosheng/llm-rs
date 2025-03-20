@@ -44,6 +44,8 @@ fn story() {
 
     loop {
         print!("user input : " );
+        std::io::Write::flush(&mut std::io::stdout()).unwrap();
+
         let mut buf = String::new();
         std::io::stdin().read_line(&mut buf).unwrap();
         let binding = tokenizer.encode(buf.trim(), true).unwrap();
