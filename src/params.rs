@@ -36,37 +36,38 @@ impl LLamaParams<f32> {
                 .collect::<Vec<_>>();
             Tensor::<f32>::new(tensor_data, &tensorview.shape().to_vec())
         };
-        println!("{:#?}", safetensor.names());
+        // println!("{:#?}", safetensor.names());
+
+        let get_layer_tensor: Box<dyn Fn(&str, u32) -> Vec<Tensor<f32>>> =
+            Box::new(|name: &str, layers: u32| {
+                (0..layers)
+                    .map(|layer| {
+                        let index = format!("model.layers.{}.{}", layer, name);
+                        get_tensor(&index)
+                    })
+                    .collect::<Vec<Tensor<f32>>>()
+            });
+        let embedding_table = if config.tie_word_embeddings {
+            "lm_head.weight"
+        } else {
+            "model.embed_tokens.weight"
+        };
 
         LLamaParams {
-            embedding_table: get_tensor("lm_head.weight"),
-            rms_att_w: (0..config.num_hidden_layers)
-                .map(|i| get_tensor(&format!("model.layers.{i}.input_layernorm.weight")))
-                .collect(),
-            wq: (0..config.num_hidden_layers)
-                .map(|i| get_tensor(&format!("model.layers.{i}.self_attn.q_proj.weight")))
-                .collect(),
-            wk: (0..config.num_hidden_layers)
-                .map(|i| get_tensor(&format!("model.layers.{i}.self_attn.k_proj.weight")))
-                .collect(),
-            wv: (0..config.num_hidden_layers)
-                .map(|i| get_tensor(&format!("model.layers.{i}.self_attn.v_proj.weight")))
-                .collect(),
-            wo: (0..config.num_hidden_layers)
-                .map(|i| get_tensor(&format!("model.layers.{i}.self_attn.o_proj.weight")))
-                .collect(),
-            rms_ffn_w: (0..config.num_hidden_layers)
-                .map(|i| get_tensor(&format!("model.layers.{i}.post_attention_layernorm.weight")))
-                .collect(),
-            w_up: (0..config.num_hidden_layers)
-                .map(|i| get_tensor(&format!("model.layers.{i}.mlp.up_proj.weight")))
-                .collect(),
-            w_down: (0..config.num_hidden_layers)
-                .map(|i| get_tensor(&format!("model.layers.{i}.mlp.down_proj.weight")))
-                .collect(),
-            w_gate: (0..config.num_hidden_layers)
-                .map(|i| get_tensor(&format!("model.layers.{i}.mlp.gate_proj.weight")))
-                .collect(),
+            // 注意embed与lm可能不一样
+            embedding_table: get_tensor(embedding_table),
+            rms_att_w: get_layer_tensor("input_layernorm.weight", config.num_hidden_layers as u32),
+            wq: get_layer_tensor("self_attn.q_proj.weight", config.num_hidden_layers as u32),
+            wk: get_layer_tensor("self_attn.k_proj.weight", config.num_hidden_layers as u32),
+            wv: get_layer_tensor("self_attn.v_proj.weight", config.num_hidden_layers as u32),
+            wo: get_layer_tensor("self_attn.o_proj.weight", config.num_hidden_layers as u32),
+            rms_ffn_w: get_layer_tensor(
+                "post_attention_layernorm.weight",
+                config.num_hidden_layers as u32,
+            ),
+            w_up: get_layer_tensor("mlp.up_proj.weight", config.num_hidden_layers as u32),
+            w_gate: get_layer_tensor("mlp.gate_proj.weight", config.num_hidden_layers as u32),
+            w_down: get_layer_tensor("mlp.down_proj.weight", config.num_hidden_layers as u32),
             rms_out_w: get_tensor("model.norm.weight"),
             lm_head: get_tensor("lm_head.weight"),
         }

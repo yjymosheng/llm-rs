@@ -74,28 +74,40 @@ pub fn masked_softmax(y: &mut Tensor<f32>) {
 // 几个切片可以进行优化, w可以提前被提取
 pub fn rms_norm(y: &mut Tensor<f32>, x: &Tensor<f32>, w: &Tensor<f32>, epsilon: f32) {
     assert!(y.shape().last() == x.shape().last() && x.shape().last() == w.shape().last());
-    assert!(y.shape() == x.shape());
-    let n = w.shape()[0];
-    let times: usize = x.shape().iter().rev().skip(1).product();
+    // assert!(y.shape() == x.shape());
+    let len = y.size();
+    assert!(len == x.size());
+    let n_col = y.shape()[y.shape().len()-1];
+    let n_row = y.shape()[y.shape().len()-2];
+    let batch = y.size() / (n_col * n_row);
+    let _y = unsafe { y.data_mut() };
+    let _x = x.data();
+    let mut rec = vec![0.0f32; n_row];
+    for b in 0..batch {
+        let base = b * n_col * n_row;
 
-    for i in 0..times {
-        let start_index = i * n;
-        let end_index = start_index + n - 1;
-        let xi = x.data();
-        let yi = unsafe { y.data_mut() };
-        let fenmu = ((1f32 / n as f32)
-            * (xi[start_index..=end_index]
-                .iter()
-                .map(|xij| (*xij).powi(2))
-                .sum::<f32>())
-            + epsilon)
-            .sqrt();
+        // 重置 rec 向量
+        for j in 0..n_row {
+            rec[j] = 0.0;
+        }
 
-        yi[start_index..=end_index]
-            .iter_mut()
-            .zip(xi[start_index..=end_index].iter())
-            .zip(w.data().iter())
-            .for_each(|((i, j), k)| (*i) = (*j) * (*k) / fenmu);
+        // 计算每一行的平方和
+        for i in 0..(n_col * n_row) {
+            let row_idx = i / n_col;
+            rec[row_idx] += _x[i + base] * _x[i + base];
+        }
+
+        // 计算 RMS 并添加 epsilon
+        for j in 0..n_row {
+            rec[j] = (rec[j] / n_col as f32).sqrt() + epsilon;
+        }
+
+        // 归一化并应用权重
+        for i in 0..(n_col * n_row) {
+            let row_idx = i / n_col;
+            let col_idx = i % n_col;
+            _y[i + base] = _x[i + base] * w.data()[col_idx] / rec[row_idx];
+        }
     }
 }
 
@@ -123,6 +135,41 @@ pub fn sigmoid(x: f32) -> f32 {
     1f32 / (1f32 + (-1f32 * x).exp())
 }
 
+pub fn matmul_transb1(c: &mut Tensor<f32>, beta: f32, a: &Tensor<f32>, b: &Tensor<f32>, alpha: f32) {
+    // 确保 A 和 B 能进行矩阵乘法
+    assert!(a.shape().len() == b.shape().len());
+    // 确保 A 和 C 能进行矩阵加法
+    assert!(a.shape().len() == c.shape().len());
+
+    let ndim = a.shape().len();
+    assert!(ndim >= 2);
+    let a_row = a.shape()[ndim - 2];
+    let a_col = a.shape()[ndim - 1];
+
+    let b_row = b.shape()[ndim - 2];
+    let b_col = b.shape()[ndim - 1];
+
+    let c_row = c.shape()[ndim - 2];
+    let c_col = c.shape()[ndim - 1];
+
+    let _c = unsafe { c.data_mut() };
+    let _a = a.data();
+    let _b = b.data();
+
+    assert!(a_col == b_col);
+    assert!(c_col == b_row);
+    assert!(a_row == c_row);
+
+    for l in 0..c_row {
+        for i in 0..c_col {
+            let sum = (0..a_col)
+                .map(|j| _a[l * a_col + j] * _b[i * b_col + j])
+                .sum::<f32>();
+            _c[l * c_col + i] = beta * _c[l * c_col + i] + alpha * sum;
+        }
+    }
+}
+
 // C = beta * C + alpha * A @ B^T
 // hint: You don't need to do an explicit transpose of B
 // 仅考虑 二维矩阵, 不会别的
@@ -133,22 +180,43 @@ pub fn matmul_transb(c: &mut Tensor<f32>, beta: f32, a: &Tensor<f32>, b: &Tensor
     // println!("c[1][1]  {}", c.get(1, 1));
     // c.print();
 
-    let row_a = a.shape()[0];
-    // println!("A shape {:?}\nrow_A {}", a.shape(), row_a);
-    // 这玩意儿就是有几列,也是b的转置有几行
-    let col_a = a.shape()[1];
-    // 这个东西是用来推算结果c的第几列
-    let col_c = b.shape()[0];
-
-    for i in 0..row_a {
-        for j in 0..col_c {
-            let c = c.get_mut(i, j);
-            let mut tmp = 0f32;
-            for k in 0..col_a {
-                tmp += a.get(i, k) * b.get(j, k);
+    let a_row = a.shape()[a.shape().len()-2];
+    let a_col = a.shape()[a.shape().len()-1];
+    let b_row = b.shape()[b.shape().len()-2];
+    let b_col = b.shape()[b.shape().len()-1];
+    let c_row = c.shape()[c.shape().len()-2];
+    let c_col = c.shape()[c.shape().len()-1];
+    assert!(a_col == b_col);
+    assert!(a_row == c_row);
+    assert!(b_row == c_col);
+    // 计算batch
+    let batch = c.size()/(c_row * c_col);
+    let _c = unsafe { c.data_mut() };
+    let _a = a.data();
+    let _b = b.data();
+    let a_batch = a.size()/(a_row * a_row);
+    let b_batch = b.size()/(b_row * b_row);
+    // assert!(a_batch == b_batch);
+    for j in _c.iter_mut() { *j *= beta; }
+    for b in (0..batch) {
+        let c_offset = b * c_row * c_col;
+        let a_offset = b*a_row * a_col;
+        let b_offset = b*b_row * b_col;
+        for i in 0..c_row {
+            for j in 0..c_col {
+                // _c[i*c_col+j+c_offset]+=
+            //     获取a，b来进行点击
+                let ax = Tensor::new(
+                    _a[(a_offset+i*a_col)..(a_offset+(i+1)*a_col)].to_vec(),
+                    &vec![1,a_col]
+                );
+                let by = Tensor::new(
+                    _b[(b_offset+j*b_col)..(b_offset+(j+1)*b_col)].to_vec(),
+                    &vec![1,b_col]
+                );
+                let plus = dot(&ax,&by)*alpha;
+                _c[i*c_col+j+c_offset]+=plus;
             }
-
-            *c = alpha * tmp + beta * (*c);
         }
     }
     // c.print();

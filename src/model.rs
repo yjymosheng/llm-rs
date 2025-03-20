@@ -1,4 +1,5 @@
 use std::fs::File;
+use std::rc::Rc;
 use std::vec;
 
 use crate::config::LlamaConfigJson;
@@ -30,7 +31,7 @@ impl Llama<f32> {
         let config: LlamaConfigJson = serde_json::from_reader(config).unwrap();
         let model_file = std::fs::read(model_dir.as_ref().join("model.safetensors")).unwrap();
         let safetensor = SafeTensors::deserialize(&model_file).unwrap();
-        let params = LLamaParams::from_safetensors(&safetensor, &config);
+        let params: LLamaParams<f32> = LLamaParams::from_safetensors(&safetensor, &config);
 
         Self {
             vocab: config.vocab_size,
@@ -100,11 +101,40 @@ impl Llama<f32> {
 
             let full_k = &mut cache.k_cache(layer, 0); // (total_seq, n_kv_h * dqkv)
             let full_v = &mut cache.v_cache(layer, 0); // (total_seq, n_kv_h * dqkv)
+                                                       // todo!("self_attention(...)");
+            self_attention(
+                &mut hidden_states,
+                &mut att_scores,
+                q,
+                full_k,
+                full_v,
+                self.n_kv_h,
+                n_groups,
+                seq_len,
+                total_seq_len,
+                self.dqkv,
+            );
+            // todo!("down_proj matmul and add residual");
+            OP::matmul_transb(
+                &mut residual,
+                1.,
+                &hidden_states,
+                &self.params.wo[layer],
+                1.,
+            );
 
-            todo!("self_attention(...)");
-            todo!("down_proj matmul and add residual");
-
-            todo!("mlp(...)");
+            // todo!("mlp(...)");
+            mlp(
+                &mut residual,
+                &mut hidden_states,
+                &mut gate_buf,
+                &mut up_buf,
+                &self.params.w_up[layer],
+                &self.params.w_down[layer],
+                &self.params.w_gate[layer],
+                &self.params.rms_ffn_w[layer],
+                self.eps,
+            );
         }
 
         // No matter what seq_len, the output is always a 1D vector of length vocab,
@@ -133,11 +163,47 @@ impl Llama<f32> {
         top_k: u32,
         temperature: f32,
     ) -> Vec<u32> {
+        let mut result: Vec<u32>  = Vec::new();
+        let mut kv_cache = Llama::new_cache(self);
+        let mut input = Tensor::<u32>::new(Vec::from(token_ids), &vec![1, token_ids.len()]);
+        while result.len() < max_len{
+            let output = self.forward(&input, &mut kv_cache);
+            let next_token =OP::random_sample(&output,  top_p, top_k, temperature);
+            if next_token == self.eos_token_id{
+                break;
+            }
+            input=Tensor::<u32>::new(vec![next_token], &vec![1,1]);
+            result.push(next_token);
+
+        }
+        result
+
+    }
+
+    // 本质上是直接从generate中获取.添加参数及返回cache 实现cache的反复利用
+    pub fn chat(
+        &self,
+        token_ids: &[u32],
+        max_len: usize,
+        top_p: f32,
+        top_k: u32,
+        temperature: f32,
+        mut cache: KVCache<f32>,
+    ) -> (Vec<u32>, KVCache<f32>) {
         let mut result = Vec::<u32>::new();
 
-        todo!("实现文本生成");
-
-        result
+        let mut input = Tensor::<u32>::new(Vec::from(token_ids), &vec![1, token_ids.len()]);
+        while result.len() < max_len {
+            let output = self.forward(&input, &mut cache);
+            let next_token = OP::random_sample(&output, top_p, top_k, temperature);
+            if next_token == self.eos_token_id {
+                break;
+            }
+            input = Tensor::<u32>::new(vec![next_token], &vec![1, 1]);
+            result.push(next_token);
+            // println!("result add {} len {}",next_token,result.len());
+        }
+        (result, cache)
     }
 }
 
@@ -153,7 +219,183 @@ fn self_attention(
     total_seq_len: usize,
     dqkv: usize,
 ) {
-    todo!("Implement self_attention");
+    let _q = q.data();
+    let q_new = reshape_tensor(_q, seq_len, n_kv_h, n_groups, dqkv);
+
+    let _k = k.data();
+
+    let k_new = reshape_tensor(_k, total_seq_len, n_kv_h, 1, dqkv);
+    let _v = v.data();
+
+    let v_new = reshape_vtensor(total_seq_len, n_kv_h, dqkv, _v);
+
+    {
+        let _attn = unsafe { att_scores.data_mut() };
+        matmul_with_batch(
+            n_kv_h,
+            n_groups,
+            seq_len,
+            total_seq_len,
+            &dqkv,
+            &q_new,
+            &k_new,
+            _attn,
+        );
+
+        _attn.iter_mut().for_each(|val| {
+            *val /= (dqkv as f32).sqrt();
+        });
+    } 
+
+    OP::masked_softmax(att_scores);
+    let _attn = unsafe { att_scores.data_mut() };
+    let attn_new = _attn.to_vec();
+    let mut att_v = Tensor::<f32>::default(&vec![n_kv_h, n_groups, seq_len, dqkv]);
+    let _att_v = unsafe { att_v.data_mut() };
+    matmul_with_batch(
+        n_kv_h,
+        n_groups,
+        seq_len,
+        dqkv,
+        &total_seq_len,
+        &attn_new,
+        &v_new,
+        _att_v,
+    );
+
+    let out = reshape_tensor_2d(_att_v, n_kv_h, n_groups, seq_len, dqkv);
+
+    let n = hidden_states.size();
+
+    let _hidden = unsafe { hidden_states.data_mut() };
+    for i in (0..n) {
+        _hidden[i] = out[i];
+    }
+
+    // todo!("watch self-attention");
+}
+
+fn reshape_tensor(
+    q: & [f32],              
+    seq: usize,
+    n_kv_h: usize,
+    n_groups: usize,
+    dqkv: usize,
+) ->  Vec<f32> {
+    let mut q_new = vec![0f32; n_kv_h * n_groups * seq * dqkv];
+
+    for i in 0..n_kv_h {
+        for j in 0..n_groups {
+            for s in 0..seq {
+                for d in 0..dqkv {
+                    let x = i * (n_groups * dqkv) + j * dqkv + d;
+                    let old_idx = s * (n_kv_h * n_groups * dqkv) + x;
+
+                    let new_idx = i * (n_groups * seq * dqkv)
+                        + j * (seq * dqkv)
+                        + s * dqkv
+                        + d;
+
+                    q_new[new_idx] = q[old_idx];
+                }
+            }
+        }
+    }
+    q_new
+
+}
+fn reshape_vtensor(
+    seq: usize,
+    n: usize,
+    dqkv: usize,
+    original_data: &[f32],
+) -> Vec<f32> {
+    let mut target_data = vec![0.0; n * 1 * dqkv * seq]; 
+
+    for n_idx in 0..n {
+        for dqkv_idx in 0..dqkv {
+            for seq_idx in 0..seq {
+                let original_index = seq_idx * (n * dqkv) + n_idx * dqkv + dqkv_idx;
+
+                let target_index = n_idx * (1 * dqkv * seq) + 0 * (dqkv * seq) + dqkv_idx * seq + seq_idx;
+
+                target_data[target_index] = original_data[original_index];
+            }
+        }
+    }
+
+    target_data
+}
+fn reshape_tensor_2d(
+    q: & [f32],             
+
+    n_kv_h: usize,
+    n_groups: usize,
+    seq: usize,
+    dqkv: usize,
+) ->  Vec<f32> {
+    let mut q_new = vec![0f32; n_kv_h * n_groups * seq * dqkv];
+
+    for seq_idx in 0..seq {
+        for n_idx in 0..n_kv_h {
+            for g_idx in 0..n_groups {
+                for dqkv_idx in 0..dqkv {
+                    let original_index = n_idx * (n_groups * seq * dqkv)
+                        + g_idx * (seq * dqkv)
+                        + seq_idx * dqkv
+                        + dqkv_idx;
+
+                    let target_index = seq_idx * (n_kv_h * n_groups * dqkv)
+                        + n_idx * (n_groups * dqkv)
+                        + g_idx * dqkv
+                        + dqkv_idx;
+
+                    q_new[target_index] = q[original_index];
+                }
+            }
+        }
+    }
+
+
+    q_new
+
+}
+
+fn matmul_with_batch(
+    n_kv_h: usize,
+    n_groups: usize,
+    seq_len: usize,
+    total_seq_len: usize,
+    dqkv: &usize,
+    _q: &Vec<f32>,
+    _k: &Vec<f32>,
+    _attn: &mut [f32],
+) {
+    let m = _q.len() / (n_kv_h * seq_len * dqkv);
+    let n = _k.len() / (n_kv_h * total_seq_len * dqkv);
+    for i in 0..n_kv_h {
+        for j in 0..n {
+            for k in n_groups * (j)..(n_groups * (j + 1)) {
+                let k_offset = (i * n + j) * (total_seq_len * dqkv);
+                let q_offset = (i * m + k) * (seq_len * dqkv);
+                let attn_offset = (i * m + k) * (total_seq_len * seq_len);
+                for p in 0..seq_len {
+                    for q in 0..total_seq_len {
+                        let qx = Tensor::new(
+                            _q[(q_offset + p * dqkv)..(q_offset + (p + 1) * dqkv)].to_vec(),
+                            &vec![1, *dqkv],
+                        );
+                        let ky = Tensor::new(
+                            _k[(k_offset + q * dqkv)..(k_offset + (q + 1) * dqkv)].to_vec(),
+                            &vec![1, *dqkv],
+                        );
+                        let plus = OP::dot(&qx, &ky);
+                        _attn[p * total_seq_len + q + attn_offset] = plus;
+                    }
+                }
+            }
+        }
+    }
 }
 
 fn mlp(
@@ -171,7 +413,14 @@ fn mlp(
     OP::matmul_transb(gate, 0.0, hidden_states, w_gate, 1.0);
     OP::matmul_transb(up, 0.0, hidden_states, w_up, 1.0);
     OP::swiglu(up, gate);
-    OP::matmul_transb(residual, 1.0, up, w_down, 1.0);
+    let mut act = Tensor::default(residual.shape());
+    OP::matmul_transb(&mut act, 0.0, up, w_down, 1.0);
+    let n = act.size();
+    let _res = unsafe { residual.data_mut() };
+
+    for i in (0..n) {
+        _res[i] += act.data()[i];
+    }
 }
 
 #[test]
