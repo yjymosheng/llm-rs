@@ -43,9 +43,9 @@ fn story() {
     // let input = "Once upon a time";
 
     loop {
+        print!("user input : " );
         let mut buf = String::new();
         std::io::stdin().read_line(&mut buf).unwrap();
-        println!("user input : {}", buf.trim());
         let binding = tokenizer.encode(buf.trim(), true).unwrap();
         // println!("{:#?}",binding);
         let input_ids = binding.get_ids();
@@ -69,6 +69,9 @@ fn chat() {
 
     // println!("加载成功");
     loop {
+        print!("user input : ");
+        std::io::Write::flush(&mut std::io::stdout()).unwrap();
+        
         let mut buf = String::new();
         std::io::stdin().read_line(&mut buf).unwrap();
         let input = buf.trim();
