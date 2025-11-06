@@ -112,7 +112,6 @@ pub fn rms_norm(y: &mut Tensor<f32>, x: &Tensor<f32>, w: &Tensor<f32>, epsilon: 
 }
 
 // y = silu(x) * y
-// hint: this is an element-wise operation
 pub fn swiglu(y: &mut Tensor<f32>, x: &Tensor<f32>) {
     // let len = y.size();
     // assert!(len == x.size());
@@ -171,8 +170,6 @@ pub fn matmul_transb1(c: &mut Tensor<f32>, beta: f32, a: &Tensor<f32>, b: &Tenso
 }
 
 // C = beta * C + alpha * A @ B^T
-// hint: You don't need to do an explicit transpose of B
-// 仅考虑 二维矩阵, 不会别的
 pub fn matmul_transb(c: &mut Tensor<f32>, beta: f32, a: &Tensor<f32>, b: &Tensor<f32>, alpha: f32) {
     // println!("c[0][0]  {}", c.get(0, 0));
     // println!("c[0][1]  {}", c.get(0, 1));
@@ -301,7 +298,6 @@ pub fn random_sample(x: &Tensor<f32>, top_p: f32, top_k: u32, temperature: f32) 
     logits.iter().find(|p| p.val >= plimit).unwrap().tok
 }
 
-// Your implementation should at least pass the following tests:
 #[test]
 fn test_silu() {
     let mut y = Tensor::<f32>::new(vec![2., 3., 4.], &vec![1, 3]);
@@ -339,15 +335,3 @@ fn test_matmul_transb() {
         1e-3
     ));
 }
-// 自行添加项 , 我怀疑我的矩阵乘法仅仅是巧合
-// #[test]
-// fn test_matmul_transb_2() {
-//     let mut c = Tensor::<f32>::new(vec![1., 2., 3., 4.,5.,6.], &vec![2, 3]);
-//     let a = Tensor::<f32>::new(vec![1., 2., 3., 4., 5., 6.,7.,8.], &vec![2, 4]);
-//     let b = Tensor::<f32>::new(vec![1., 2., 3., 4., 5., 6.,7.,8.,9.,10.,11.,12.], &vec![3, 4]);
-//     matmul_transb(&mut c, 1., &a, &b, 1.);
-//     assert!(c.close_to(
-//         &Tensor::<f32>::new(vec![31.,72.,113.,74.,179.,284.], &vec![2, 3]),
-//         1e-3
-//     ));
-// }
