@@ -96,7 +96,7 @@
       };
 
       devShells."${system}".default = pkgs.mkShell {
-        packages = [ ] ++ self.outputs.lib.collectOption "packages";
+        packages = with pkgs ; [ ] ++ self.outputs.lib.collectOption "packages";
 
         env = { } // self.outputs.lib.collectOption "env";
 
