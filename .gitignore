@@ -1,5 +1,5 @@
 /target
 Cargo.lock
 .vscode
-models/chat.direnv/
+models/chat
 .direnv/
